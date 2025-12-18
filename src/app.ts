@@ -9,10 +9,28 @@ import helmet from "@fastify/helmet";
 import cors from "@fastify/cors";
 import { loadConfig } from "./config";
 import serviceAuthPlugin from "./plugins/service-auth";
+import auditPlugin from "./plugins/audit";
+import prismaPlugin from "./plugins/prisma";
+import redisPlugin from "./plugins/redis";
+import pubsubPlugin from "./plugins/pubsub";
+import uploadSessionsPlugin from "./plugins/upload-sessions";
+import quotaPlugin from "./plugins/quota";
+import storagePlugin from "./plugins/storage";
+import uploadManagerPlugin from "./plugins/upload-manager";
 import internalRoutes from "./routes/internal";
+import adminRoutes from "./routes/admin";
+import validationRoutes from "./routes/validation";
+import { startObservability, shutdownObservability } from "./observability";
 
 export async function buildApp() {
   const config = loadConfig();
+  await startObservability({
+    serviceName: "upload-service",
+    serviceVersion: process.env.npm_package_version,
+    tracesEndpoint: config.OTEL_TRACES_ENDPOINT,
+    metricsEndpoint: config.OTEL_METRICS_ENDPOINT,
+    metricsExportIntervalMillis: config.OTEL_METRICS_INTERVAL_MS,
+  });
 
   const app = Fastify({
     logger: {
@@ -38,10 +56,37 @@ export async function buildApp() {
   await app.register(sensible);
   await app.register(cors, { origin: false });
   await app.register(helmet, { contentSecurityPolicy: false });
+  await app.register(prismaPlugin);
+  await app.register(auditPlugin);
+  await app.register(uploadSessionsPlugin);
+  await app.register(redisPlugin);
+  await app.register(quotaPlugin);
+  await app.register(storagePlugin);
+  await app.register(pubsubPlugin);
+  await app.register(uploadManagerPlugin);
   await app.register(serviceAuthPlugin);
   await app.register(internalRoutes, { prefix: "/internal" });
+  await app.register(validationRoutes, { prefix: "/internal" });
+  await app.register(adminRoutes, { prefix: "/v1/admin" });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  let cleanupTimer: NodeJS.Timeout | null = null;
+
+  app.addHook("onReady", async () => {
+    cleanupTimer = setInterval(() => {
+      void app.uploadManager.expireStale(new Date());
+    }, config.CLEANUP_INTERVAL_SECONDS * 1000);
+    cleanupTimer.unref();
+  });
+
+  app.addHook("onClose", async () => {
+    if (cleanupTimer) {
+      clearInterval(cleanupTimer);
+      cleanupTimer = null;
+    }
+    await shutdownObservability();
+  });
 
   return app;
 }

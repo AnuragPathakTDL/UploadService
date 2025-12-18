@@ -1,0 +1,47 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UploadStatus {
+  REQUESTED
+  UPLOADING
+  VALIDATING
+  PROCESSING
+  READY
+  FAILED
+  EXPIRED
+}
+
+enum UploadAssetType {
+  VIDEO
+  THUMBNAIL
+  BANNER
+}
+
+model UploadSession {
+  id                String         @id @default(uuid())
+  adminId           String
+  contentId         String?
+  assetType         UploadAssetType
+  objectKey         String         @unique
+  contentType       String
+  sizeBytes         Int
+  uploadUrl         String?
+  storageUrl        String?
+  cdnUrl            String?
+  formFields        Json?
+  status            UploadStatus   @default(REQUESTED)
+  expiresAt         DateTime
+  completedAt       DateTime?
+  failureReason     String?
+  validationChecksum String?
+  validationMeta    Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
