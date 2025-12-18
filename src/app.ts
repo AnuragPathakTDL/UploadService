@@ -65,9 +65,11 @@ export async function buildApp() {
   await app.register(pubsubPlugin);
   await app.register(uploadManagerPlugin);
   await app.register(serviceAuthPlugin);
-  await app.register(internalRoutes, { prefix: "/internal" });
-  await app.register(validationRoutes, { prefix: "/internal" });
-  await app.register(adminRoutes, { prefix: "/v1/admin" });
+  await app.register(internalRoutes, { prefix: `/internal` });
+
+  const externalBase = "/api/v1/upload";
+  await app.register(adminRoutes, { prefix: `${externalBase}/admin` });
+  await app.register(validationRoutes, { prefix: `${externalBase}/internal` });
 
   app.get("/health", async () => ({ status: "ok" }));
 

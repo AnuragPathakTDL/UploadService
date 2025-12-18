@@ -1,4 +1,3 @@
-import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   createUploadUrlBodySchema,
@@ -16,7 +15,7 @@ function resolveAdminId(request: FastifyRequest) {
   return adminId;
 }
 
-export default fp(async function internalRoutes(fastify: FastifyInstance) {
+export default async function internalRoutes(fastify: FastifyInstance) {
   fastify.post(
     "/uploads/sign",
     {
@@ -53,4 +52,4 @@ export default fp(async function internalRoutes(fastify: FastifyInstance) {
       }
     }
   );
-});
+}

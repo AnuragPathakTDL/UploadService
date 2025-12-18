@@ -1,4 +1,3 @@
-import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
@@ -37,7 +36,7 @@ function ensureAdmin(request: FastifyRequest) {
   return { adminId, roles };
 }
 
-export default fp(async function adminRoutes(fastify: FastifyInstance) {
+export default async function adminRoutes(fastify: FastifyInstance) {
   fastify.addHook("preHandler", async (request, reply) => {
     await fastify.verifyServiceRequest(request, reply);
   });
@@ -128,4 +127,4 @@ export default fp(async function adminRoutes(fastify: FastifyInstance) {
       };
     }
   );
-});
+}

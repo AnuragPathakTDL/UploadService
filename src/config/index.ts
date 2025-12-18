@@ -23,8 +23,13 @@ const envSchema = z.object({
     .transform((value) =>
       value && value.trim().length > 0 ? value : undefined
     ),
-  DATABASE_URL: z.string().url(),
-  REDIS_URL: z.string().url().default("redis://localhost:6379"),
+  DATABASE_URL: z
+    .string()
+    .url()
+    .default(
+      "postgresql://postgres:postgres@postgres:5432/pocketlol_uploads?schema=public"
+    ),
+  REDIS_URL: z.string().url().default("redis://redis:6379/1"),
   UPLOAD_CONCURRENT_LIMIT: z.coerce.number().int().positive().default(5),
   UPLOAD_DAILY_LIMIT: z.coerce.number().int().positive().default(50),
   GCP_PROJECT_ID: z

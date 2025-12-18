@@ -1,4 +1,3 @@
-import fp from "fastify-plugin";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
@@ -10,7 +9,7 @@ const uploadIdParamSchema = z.object({
   uploadId: z.string().uuid(),
 });
 
-export default fp(async function validationRoutes(fastify: FastifyInstance) {
+export default async function validationRoutes(fastify: FastifyInstance) {
   fastify.post(
     "/uploads/:uploadId/validation",
     {
@@ -61,4 +60,4 @@ export default fp(async function validationRoutes(fastify: FastifyInstance) {
       return { status: "accepted" as const };
     }
   );
-});
+}
