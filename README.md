@@ -90,6 +90,21 @@ Processing payload (success):
 
 Each topic uses Pub/Sub defaults (60 s ack deadline, exponential backoff, up to five deliveries). Schemas are captured in `APIGW/src/config/openapi.ts`.
 
+## Environment Setup
+
+Copy `.env.example` into `.env` and fill in the secrets that correspond to your environment. The table below lists the most important settings and how to source them:
+
+| Variable | Purpose | Where to obtain |
+| --- | --- | --- |
+| `SERVICE_AUTH_TOKEN` | Shared S2S token required by API Gateway and internal callbacks. | Secret Manager entry `platform/service-token` provisioned by the Auth team. |
+| `DATABASE_URL` | Postgres connection string for ingest metadata and audit trails. | Cloud SQL instance DSN (store in Secret Manager as `uploads/postgres`). |
+| `REDIS_URL` | Redis/Memorystore endpoint that backs per-admin quotas. | Memorystore connection string exposed via infra-local outputs. |
+| `GCP_SERVICE_ACCOUNT_KEY` | Base64 JSON key with `storage.objects.signUrl` permission used to mint signed policies. | Service account `upload-signing@<project>.iam.gserviceaccount.com` JSON exported from IAM. |
+| `UPLOAD_BUCKET` / `CDN_UPLOAD_BASE_URL` | Target bucket and CDN hostname that serve admin uploads. | Created by the infra team; look up in Terraform outputs `upload_bucket_name` and `upload_cdn_domain`. |
+| `MEDIA_*_TOPIC` values | Pub/Sub topics for the ingest pipeline. | Use the per-environment topic names published in Terraform outputs (`media_uploaded_topic`, etc.). |
+| `ENABLE_AUDIT_EVENTS`, `AUDIT_EVENT_SINK_URL`, `AUDIT_EVENT_SINK_TOKEN` | Controls forwarding of structured admin actions. | Compliance provides the HTTPS sink + token; configure Secret Manager entry `audit/upload-service`. |
+| `OTEL_*` | Optional OTLP exporters for traces and metrics. | Point to the shared Observability OTLP collector endpoint. |
+
 ## Environment Variables
 
 | Name | Required | Default | Description |
