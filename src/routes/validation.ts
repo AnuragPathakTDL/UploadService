@@ -16,9 +16,6 @@ export default async function validationRoutes(fastify: FastifyInstance) {
       schema: {
         params: uploadIdParamSchema,
         body: validationCallbackBodySchema,
-        response: {
-          200: z.object({ status: z.literal("accepted") }),
-        },
       },
     },
     async (request) => {
@@ -39,9 +36,6 @@ export default async function validationRoutes(fastify: FastifyInstance) {
       schema: {
         params: uploadIdParamSchema,
         body: processingCallbackBodySchema,
-        response: {
-          200: z.object({ status: z.literal("accepted") }),
-        },
       },
     },
     async (request) => {

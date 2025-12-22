@@ -1,8 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import {
-  createUploadUrlBodySchema,
-  createUploadUrlResponseSchema,
-} from "../schemas/upload";
+import { createUploadUrlBodySchema } from "../schemas/upload";
 
 function resolveAdminId(request: FastifyRequest) {
   const adminHeader = request.headers["x-pocketlol-admin-id"];
@@ -21,9 +18,6 @@ export default async function internalRoutes(fastify: FastifyInstance) {
     {
       schema: {
         body: createUploadUrlBodySchema,
-        response: {
-          200: createUploadUrlResponseSchema,
-        },
       },
     },
     async (request) => {

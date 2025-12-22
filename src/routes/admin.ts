@@ -1,11 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import {
-  createUploadUrlBodySchema,
-  createUploadUrlResponseSchema,
-  uploadStatusResponseSchema,
-  quotaLimitsSchema,
-} from "../schemas/upload";
+import { createUploadUrlBodySchema } from "../schemas/upload";
 
 const uploadIdParamSchema = z.object({
   uploadId: z.string().uuid(),
@@ -13,27 +8,25 @@ const uploadIdParamSchema = z.object({
 
 function ensureAdmin(request: FastifyRequest) {
   const adminIdHeader = request.headers["x-pocketlol-admin-id"];
-  const rolesHeader = request.headers["x-pocketlol-admin-roles"];
+  const userTypeHeader =
+    request.headers["x-pocketlol-user-type"] ?? request.headers["x-user-type"];
 
   const adminId = Array.isArray(adminIdHeader)
     ? adminIdHeader[0]
     : adminIdHeader;
-  const rolesString = Array.isArray(rolesHeader) ? rolesHeader[0] : rolesHeader;
-  const roles =
-    rolesString
-      ?.split(",")
-      .map((role) => role.trim().toLowerCase())
-      .filter(Boolean) ?? [];
+  const userType = Array.isArray(userTypeHeader)
+    ? userTypeHeader[0]
+    : userTypeHeader;
 
   if (!adminId) {
     throw request.server.httpErrors.unauthorized("Missing admin identity");
   }
 
-  if (!roles.includes("admin")) {
-    throw request.server.httpErrors.forbidden("Admin role required");
+  if (!userType || userType.toUpperCase() !== "ADMIN") {
+    throw request.server.httpErrors.forbidden("Admin user required");
   }
 
-  return { adminId, roles };
+  return { adminId };
 }
 
 export default async function adminRoutes(fastify: FastifyInstance) {
@@ -46,9 +39,6 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     {
       schema: {
         body: createUploadUrlBodySchema,
-        response: {
-          200: createUploadUrlResponseSchema,
-        },
       },
     },
     async (request) => {
@@ -83,9 +73,6 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     {
       schema: {
         params: uploadIdParamSchema,
-        response: {
-          200: uploadStatusResponseSchema,
-        },
       },
     },
     async (request) => {
@@ -106,9 +93,6 @@ export default async function adminRoutes(fastify: FastifyInstance) {
     "/uploads/quota",
     {
       schema: {
-        response: {
-          200: quotaLimitsSchema,
-        },
       },
     },
     async (request) => {

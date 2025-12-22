@@ -21,7 +21,6 @@ import internalRoutes from "./routes/internal";
 import adminRoutes from "./routes/admin";
 import validationRoutes from "./routes/validation";
 import { startObservability, shutdownObservability } from "./observability";
-import responseEnvelopePlugin from "./plugins/response-envelope";
 
 export async function buildApp() {
   const config = loadConfig();
@@ -57,7 +56,6 @@ export async function buildApp() {
   await app.register(sensible);
   await app.register(cors, { origin: false });
   await app.register(helmet, { contentSecurityPolicy: false });
-  await app.register(responseEnvelopePlugin);
   await app.register(prismaPlugin);
   await app.register(auditPlugin);
   await app.register(uploadSessionsPlugin);
