@@ -191,9 +191,7 @@ export class UploadManager {
     if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
       return null;
     }
-    const readyMetadata = (meta as Record<string, unknown>)[
-      "readyMetadata"
-    ];
+    const readyMetadata = (meta as Record<string, unknown>)["readyMetadata"];
     if (!readyMetadata || typeof readyMetadata !== "object") {
       return null;
     }
@@ -201,9 +199,7 @@ export class UploadManager {
   }
 
   private buildReadyEventKey(contentId: string, checksum: string) {
-    return createHash("sha1")
-      .update(`${contentId}:${checksum}`)
-      .digest("hex");
+    return createHash("sha1").update(`${contentId}:${checksum}`).digest("hex");
   }
 
   private buildDefaultStoragePrefix(
@@ -395,9 +391,9 @@ export class UploadManager {
       cdnUrl: session.cdnUrl ?? undefined,
       sizeBytes: session.sizeBytes,
       contentType: session.contentType,
-      contentClassification: this.mapSessionClassification(
-        session.contentClassification
-      ) ?? undefined,
+      contentClassification:
+        this.mapSessionClassification(session.contentClassification) ??
+        undefined,
       expiresAt: session.expiresAt.toISOString(),
       completedAt: session.completedAt?.toISOString(),
       failureReason: session.failureReason ?? undefined,
@@ -654,10 +650,7 @@ export class UploadManager {
           application: contentType === "REEL" ? "reels" : "episodes",
           protocol: contentType === "REEL" ? "LL-HLS" : "HLS",
         },
-        idempotencyKey: this.buildReadyEventKey(
-          session.contentId,
-          checksum
-        ),
+        idempotencyKey: this.buildReadyEventKey(session.contentId, checksum),
         readyAt: session.completedAt
           ? session.completedAt.toISOString()
           : new Date().toISOString(),
@@ -795,7 +788,7 @@ export class UploadManager {
     const ready = payload.status === "ready";
     const readyMetadata = ready ? payload.readyMetadata : undefined;
     const previewGeneratedAt = ready
-      ? payload.previewGeneratedAt ?? new Date().toISOString()
+      ? (payload.previewGeneratedAt ?? new Date().toISOString())
       : undefined;
     const existingMeta =
       session.validationMeta &&
@@ -809,10 +802,10 @@ export class UploadManager {
       manifestUrl: payload.status === "ready" ? payload.manifestUrl : undefined,
       defaultThumbnailUrl:
         payload.status === "ready" ? payload.defaultThumbnailUrl : undefined,
-      bitrateKbps:
-        payload.status === "ready" ? payload.bitrateKbps : undefined,
+      bitrateKbps: payload.status === "ready" ? payload.bitrateKbps : undefined,
       previewGeneratedAt,
-      failureReason: payload.status === "failed" ? payload.failureReason : undefined,
+      failureReason:
+        payload.status === "failed" ? payload.failureReason : undefined,
       existingMeta,
       readyMetadata,
     });
