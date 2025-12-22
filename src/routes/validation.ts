@@ -41,16 +41,10 @@ export default async function validationRoutes(fastify: FastifyInstance) {
     async (request) => {
       const params = uploadIdParamSchema.parse(request.params);
       const body = processingCallbackBodySchema.parse(request.body);
-      await fastify.uploadManager.markProcessingComplete(params.uploadId, {
-        manifestUrl: body.status === "ready" ? body.manifestUrl : undefined,
-        defaultThumbnailUrl:
-          body.status === "ready" ? body.defaultThumbnailUrl : undefined,
-        bitrateKbps: body.status === "ready" ? body.bitrateKbps : undefined,
-        previewGeneratedAt:
-          body.status === "ready" ? body.previewGeneratedAt : undefined,
-        failureReason:
-          body.status === "failed" ? body.failureReason : undefined,
-      });
+      await fastify.uploadManager.markProcessingComplete(
+        params.uploadId,
+        body
+      );
       return { status: "accepted" as const };
     }
   );

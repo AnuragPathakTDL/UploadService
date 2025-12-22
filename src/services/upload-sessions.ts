@@ -1,15 +1,18 @@
 import {
+  ContentClassification,
   Prisma,
   UploadAssetType,
   UploadStatus,
   type PrismaClient,
   type UploadSession,
 } from "@prisma/client";
+import type { ReadyMetadata } from "../schemas/upload";
 
 export type CreateUploadSessionInput = {
   adminId: string;
   contentId?: string;
   assetType: "video" | "thumbnail" | "banner";
+  contentClassification?: "REEL" | "EPISODE";
   objectKey: string;
   storageUrl: string;
   cdnUrl?: string;
@@ -44,11 +47,25 @@ export class UploadSessionService {
     }
   }
 
+  private mapClassification(
+    classification: CreateUploadSessionInput["contentClassification"]
+  ) {
+    if (!classification) {
+      return undefined;
+    }
+    return classification === "REEL"
+      ? ContentClassification.REEL
+      : ContentClassification.EPISODE;
+  }
+
   async createSession(input: CreateUploadSessionInput) {
     return this.prisma.uploadSession.create({
       data: {
         adminId: input.adminId,
         contentId: input.contentId,
+        contentClassification: this.mapClassification(
+          input.contentClassification
+        ),
         assetType: this.mapAssetType(input.assetType),
         objectKey: input.objectKey,
         storageUrl: input.storageUrl,
@@ -128,6 +145,7 @@ export class UploadSessionService {
       ready: boolean;
       failureReason?: string;
       existingMeta?: Prisma.JsonObject;
+      readyMetadata?: ReadyMetadata;
     }
   ) {
     const nextMeta: Prisma.JsonObject = {
@@ -156,6 +174,12 @@ export class UploadSessionService {
       } else {
         delete nextMeta.bitrateKbps;
       }
+    }
+
+    if (outcome.readyMetadata) {
+      nextMeta.readyMetadata = outcome.readyMetadata;
+    } else {
+      delete nextMeta.readyMetadata;
     }
 
     const metadataPayload: Prisma.InputJsonValue | undefined =

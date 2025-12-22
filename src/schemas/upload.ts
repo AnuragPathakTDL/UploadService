@@ -1,16 +1,61 @@
 import { z } from "zod";
 
-export const createUploadUrlBodySchema = z.object({
-  fileName: z.string().min(1).max(255),
-  contentType: z.string().min(3).max(128),
-  sizeBytes: z
-    .number()
-    .int()
-    .positive()
-    .max(512 * 1024 * 1024),
-  assetType: z.enum(["video", "thumbnail", "banner"]),
-  contentId: z.string().uuid().optional(),
+export const contentClassificationSchema = z.enum(["REEL", "EPISODE"]);
+
+const renditionSchema = z.object({
+  name: z.string().min(1),
+  codec: z.string().min(1),
+  bitrateKbps: z.number().int().positive(),
+  resolution: z
+    .string()
+    .regex(/^[0-9]+x[0-9]+$/, "resolution must be WIDTHxHEIGHT"),
+  frameRate: z.number().positive().optional(),
 });
+
+export const drmSchema = z.object({
+  keyId: z.string(),
+  licenseServer: z.string().url(),
+});
+
+const readyMetadataSchema = z.object({
+  bucket: z.string().min(1),
+  manifestObject: z.string().min(1),
+  storagePrefix: z.string().min(1).optional(),
+  renditions: z.array(renditionSchema).min(1),
+  checksum: z.string().min(1),
+  signedUrlTtlSeconds: z.number().int().positive().default(300),
+  encryption: drmSchema.optional(),
+  lifecycle: z
+    .object({
+      storageClass: z.string().min(1),
+      retentionDays: z.number().int().positive().optional(),
+    })
+    .optional(),
+  regionHint: z.string().optional(),
+});
+
+export const createUploadUrlBodySchema = z
+  .object({
+    fileName: z.string().min(1).max(255),
+    contentType: z.string().min(3).max(128),
+    sizeBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(512 * 1024 * 1024),
+    assetType: z.enum(["video", "thumbnail", "banner"]),
+    contentId: z.string().uuid().optional(),
+    contentClassification: contentClassificationSchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.assetType === "video" && !data.contentClassification) {
+      ctx.addIssue({
+        path: ["contentClassification"],
+        code: z.ZodIssueCode.custom,
+        message: "contentClassification is required for video uploads",
+      });
+    }
+  });
 
 export const createUploadUrlResponseSchema = z.object({
   uploadId: z.string().uuid(),
@@ -42,6 +87,7 @@ export const uploadStatusResponseSchema = z.object({
   cdnUrl: z.string().url().optional(),
   sizeBytes: z.number().int().nonnegative(),
   contentType: z.string(),
+  contentClassification: contentClassificationSchema.optional(),
   expiresAt: z.string().datetime(),
   completedAt: z.string().datetime().optional(),
   failureReason: z.string().optional(),
@@ -87,6 +133,7 @@ export const processingCallbackBodySchema = z
     bitrateKbps: z.number().int().positive().optional(),
     previewGeneratedAt: z.string().datetime().optional(),
     failureReason: z.string().optional(),
+    readyMetadata: readyMetadataSchema.optional(),
   })
   .superRefine((data, ctx) => {
     if (data.status === "ready" && !data.manifestUrl) {
@@ -94,6 +141,13 @@ export const processingCallbackBodySchema = z
         path: ["manifestUrl"],
         code: z.ZodIssueCode.custom,
         message: "manifestUrl is required when status is ready",
+      });
+    }
+    if (data.status === "ready" && !data.readyMetadata) {
+      ctx.addIssue({
+        path: ["readyMetadata"],
+        code: z.ZodIssueCode.custom,
+        message: "readyMetadata is required when status is ready",
       });
     }
     if (data.status === "failed" && !data.failureReason) {
@@ -116,3 +170,4 @@ export type ValidationCallbackBody = z.infer<
 export type ProcessingCallbackBody = z.infer<
   typeof processingCallbackBodySchema
 >;
+export type ReadyMetadata = z.infer<typeof readyMetadataSchema>;

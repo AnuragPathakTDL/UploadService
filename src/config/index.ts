@@ -47,6 +47,8 @@ const envSchema = z.object({
   UPLOAD_BUCKET: z.string().default("pocketlol-uploads"),
   CDN_UPLOAD_BASE_URL: z.string().url().default("https://upload.cdn.pocketlol"),
   SIGNED_UPLOAD_TTL_SECONDS: z.coerce.number().int().positive().default(600),
+  DEFAULT_TENANT_ID: z.string().min(1).default("pocketlol"),
+  DEFAULT_INGEST_REGION: z.string().min(1).default("us-central1"),
   PUBSUB_PROJECT_ID: z
     .string()
     .optional()
@@ -54,6 +56,9 @@ const envSchema = z.object({
       value && value.trim().length > 0 ? value : undefined
     ),
   MEDIA_UPLOADED_TOPIC: z.string().default("media.uploaded"),
+  MEDIA_READY_FOR_STREAM_TOPIC: z
+    .string()
+    .default("media.ready-for-stream"),
   PREVIEW_GENERATION_TOPIC: z.string().default("media.preview.requested"),
   MEDIA_PROCESSED_TOPIC: z.string().default("media.processed"),
   CLEANUP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(300),

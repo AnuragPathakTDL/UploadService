@@ -24,10 +24,16 @@ enum UploadAssetType {
   BANNER
 }
 
+enum ContentClassification {
+  REEL
+  EPISODE
+}
+
 model UploadSession {
   id                String         @id @default(uuid())
   adminId           String
   contentId         String?
+  contentClassification ContentClassification?
   assetType         UploadAssetType
   objectKey         String         @unique
   contentType       String

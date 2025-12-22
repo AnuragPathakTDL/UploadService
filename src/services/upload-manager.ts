@@ -1,5 +1,6 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
+  ContentClassification,
   UploadAssetType,
   UploadStatus,
   type Prisma,
@@ -12,6 +13,8 @@ import { UploadSessionService } from "./upload-sessions";
 import { UploadQuotaService, type QuotaState } from "./quota-service";
 import type {
   CreateUploadUrlBody,
+  ProcessingCallbackBody,
+  ReadyMetadata,
   ValidationCallbackBody,
 } from "../schemas/upload";
 import { loadConfig, type Env } from "../config";
@@ -65,10 +68,54 @@ function mapAssetTypeToString(
   }
 }
 
+interface ReadyForStreamEvent {
+  eventId: string;
+  eventType: "media.ready-for-stream";
+  version: string;
+  occurredAt: string;
+  data: {
+    uploadId: string;
+    videoId: string;
+    tenantId: string;
+    contentType: "REEL" | "EPISODE";
+    sourceUpload: {
+      storageUrl?: string | null;
+      objectKey: string;
+      sizeBytes: number;
+      contentType: string;
+    };
+    processedAsset: {
+      bucket: string;
+      manifestObject: string;
+      storagePrefix?: string;
+      renditions: ReadyMetadata["renditions"];
+      checksum: string;
+      signedUrlTtlSeconds: number;
+      lifecycle?: ReadyMetadata["lifecycle"];
+    };
+    encryption?: ReadyMetadata["encryption"];
+    ingestRegion: string;
+    cdn: {
+      defaultBaseUrl: string;
+    };
+    omeHints: {
+      application: "reels" | "episodes";
+      protocol: "LL-HLS" | "HLS";
+    };
+    idempotencyKey: string;
+    readyAt: string;
+  };
+  acknowledgement: {
+    deadlineSeconds: number;
+    required: boolean;
+  };
+}
+
 export class UploadManager {
   private readonly config: Env;
   private readonly previewTopic: string | null;
   private readonly processedTopic: string | null;
+  private readonly readyTopic: string | null;
 
   constructor(
     private readonly storage: Storage,
@@ -83,6 +130,8 @@ export class UploadManager {
     this.previewTopic = previewTopic ? previewTopic : null;
     const processedTopic = this.config.MEDIA_PROCESSED_TOPIC?.trim();
     this.processedTopic = processedTopic ? processedTopic : null;
+    const readyTopic = this.config.MEDIA_READY_FOR_STREAM_TOPIC?.trim();
+    this.readyTopic = readyTopic ? readyTopic : null;
   }
 
   private async emitAudit(event: AuditEvent) {
@@ -126,6 +175,43 @@ export class UploadManager {
     const policy = assetPolicies[assetType];
     const sanitizedFileName = sanitizeFileName(fileName);
     return `${policy.prefix}/${Date.now()}-${randomBytes(8).toString("hex")}-${sanitizedFileName}`;
+  }
+
+  private mapSessionClassification(
+    classification: UploadSession["contentClassification"]
+  ): "REEL" | "EPISODE" | null {
+    if (!classification) {
+      return null;
+    }
+    return classification === ContentClassification.REEL ? "REEL" : "EPISODE";
+  }
+
+  private extractReadyMetadata(session: UploadSession): ReadyMetadata | null {
+    const meta = session.validationMeta;
+    if (!meta || typeof meta !== "object" || Array.isArray(meta)) {
+      return null;
+    }
+    const readyMetadata = (meta as Record<string, unknown>)[
+      "readyMetadata"
+    ];
+    if (!readyMetadata || typeof readyMetadata !== "object") {
+      return null;
+    }
+    return readyMetadata as ReadyMetadata;
+  }
+
+  private buildReadyEventKey(contentId: string, checksum: string) {
+    return createHash("sha1")
+      .update(`${contentId}:${checksum}`)
+      .digest("hex");
+  }
+
+  private buildDefaultStoragePrefix(
+    contentType: "REEL" | "EPISODE",
+    contentId: string
+  ) {
+    const application = contentType === "REEL" ? "reels" : "episodes";
+    return `videos/${contentId}/${application}`;
   }
 
   async issueUpload(
@@ -184,6 +270,7 @@ export class UploadManager {
       const session = await this.sessions.createSession({
         adminId,
         contentId: body.contentId,
+        contentClassification: body.contentClassification,
         assetType: body.assetType,
         objectKey,
         storageUrl: `gs://${this.config.UPLOAD_BUCKET}/${objectKey}`,
@@ -213,6 +300,7 @@ export class UploadManager {
             objectKey,
             assetType: body.assetType,
             sizeBytes: body.sizeBytes,
+            contentClassification: body.contentClassification,
           },
         },
         "Issued signed upload policy"
@@ -229,6 +317,7 @@ export class UploadManager {
           assetType: body.assetType,
           sizeBytes: body.sizeBytes,
           quotaState,
+          contentClassification: body.contentClassification,
         },
       });
 
@@ -306,6 +395,9 @@ export class UploadManager {
       cdnUrl: session.cdnUrl ?? undefined,
       sizeBytes: session.sizeBytes,
       contentType: session.contentType,
+      contentClassification: this.mapSessionClassification(
+        session.contentClassification
+      ) ?? undefined,
       expiresAt: session.expiresAt.toISOString(),
       completedAt: session.completedAt?.toISOString(),
       failureReason: session.failureReason ?? undefined,
@@ -324,6 +416,9 @@ export class UploadManager {
       assetType: mapAssetTypeToString(session.assetType),
       adminId: session.adminId,
       contentId: session.contentId,
+      contentClassification: this.mapSessionClassification(
+        session.contentClassification
+      ),
       sizeBytes: session.sizeBytes,
       contentType: session.contentType,
       validation: session.validationMeta,
@@ -360,6 +455,9 @@ export class UploadManager {
         assetType: mapAssetTypeToString(session.assetType),
         storageUrl: session.storageUrl,
         cdnUrl: session.cdnUrl,
+        contentClassification: this.mapSessionClassification(
+          session.contentClassification
+        ),
       },
     });
   }
@@ -420,6 +518,7 @@ export class UploadManager {
 
     const meta = ((session.validationMeta as Record<string, unknown> | null) ??
       {}) as Record<string, unknown>;
+    const readyMetadata = this.extractReadyMetadata(session);
 
     const message = {
       uploadId: session.id,
@@ -434,6 +533,7 @@ export class UploadManager {
       durationSeconds: meta["durationSeconds"] as number | undefined,
       bitrateKbps: meta["bitrateKbps"] as number | undefined,
       previewGeneratedAt: meta["previewGeneratedAt"] as string | undefined,
+      readyMetadata: readyMetadata ?? undefined,
       emittedAt: new Date().toISOString(),
     };
 
@@ -467,6 +567,132 @@ export class UploadManager {
         durationSeconds: meta["durationSeconds"],
         bitrateKbps: meta["bitrateKbps"],
         previewGeneratedAt: meta["previewGeneratedAt"],
+        readyMetadata,
+      },
+    });
+  }
+
+  private async publishMediaReadyForStream(session: UploadSession) {
+    if (!this.readyTopic) {
+      this.logger.debug(
+        { uploadId: session.id },
+        "Ready-for-stream topic disabled"
+      );
+      return;
+    }
+    if (!session.contentId) {
+      this.logger.error(
+        { uploadId: session.id },
+        "Cannot emit ready-for-stream event without contentId"
+      );
+      return;
+    }
+
+    const readyMetadata = this.extractReadyMetadata(session);
+    if (!readyMetadata) {
+      this.logger.warn(
+        { uploadId: session.id },
+        "Ready metadata missing; skipping ready-for-stream event"
+      );
+      return;
+    }
+
+    const contentType = this.mapSessionClassification(
+      session.contentClassification
+    );
+    if (!contentType) {
+      this.logger.warn(
+        { uploadId: session.id },
+        "Content classification missing; cannot publish ready-for-stream"
+      );
+      return;
+    }
+
+    const checksum = readyMetadata.checksum ?? session.validationChecksum;
+    if (!checksum) {
+      this.logger.warn(
+        { uploadId: session.id },
+        "Checksum missing; cannot guarantee idempotency"
+      );
+      return;
+    }
+
+    const event: ReadyForStreamEvent = {
+      eventId: randomUUID(),
+      eventType: "media.ready-for-stream",
+      version: "2025-01-01",
+      occurredAt: new Date().toISOString(),
+      data: {
+        uploadId: session.id,
+        videoId: session.contentId,
+        tenantId: this.config.DEFAULT_TENANT_ID,
+        contentType,
+        sourceUpload: {
+          storageUrl: session.storageUrl,
+          objectKey: session.objectKey,
+          sizeBytes: session.sizeBytes,
+          contentType: session.contentType,
+        },
+        processedAsset: {
+          bucket: readyMetadata.bucket,
+          manifestObject: readyMetadata.manifestObject,
+          storagePrefix:
+            readyMetadata.storagePrefix ??
+            this.buildDefaultStoragePrefix(contentType, session.contentId),
+          renditions: readyMetadata.renditions,
+          checksum,
+          signedUrlTtlSeconds: readyMetadata.signedUrlTtlSeconds,
+          lifecycle: readyMetadata.lifecycle,
+        },
+        encryption: readyMetadata.encryption,
+        ingestRegion:
+          readyMetadata.regionHint ?? this.config.DEFAULT_INGEST_REGION,
+        cdn: {
+          defaultBaseUrl: session.cdnUrl ?? this.config.CDN_UPLOAD_BASE_URL,
+        },
+        omeHints: {
+          application: contentType === "REEL" ? "reels" : "episodes",
+          protocol: contentType === "REEL" ? "LL-HLS" : "HLS",
+        },
+        idempotencyKey: this.buildReadyEventKey(
+          session.contentId,
+          checksum
+        ),
+        readyAt: session.completedAt
+          ? session.completedAt.toISOString()
+          : new Date().toISOString(),
+      },
+      acknowledgement: {
+        deadlineSeconds: 60,
+        required: true,
+      },
+    };
+
+    await this.pubsub.topic(this.readyTopic).publishMessage({ json: event });
+
+    this.logger.info(
+      {
+        uploadId: session.id,
+        contentId: session.contentId,
+        bucket: readyMetadata.bucket,
+        manifestObject: readyMetadata.manifestObject,
+      },
+      "Emitted media.ready-for-stream event"
+    );
+
+    void this.emitAudit({
+      type: "upload.event.media_ready_for_stream",
+      uploadId: session.id,
+      adminId: session.adminId,
+      contentId: session.contentId ?? undefined,
+      storageKey: session.objectKey,
+      metadata: {
+        bucket: readyMetadata.bucket,
+        manifestObject: readyMetadata.manifestObject,
+        renditions: readyMetadata.renditions,
+        ingestRegion:
+          readyMetadata.regionHint ?? this.config.DEFAULT_INGEST_REGION,
+        contentClassification: contentType,
       },
     });
   }
@@ -557,13 +783,7 @@ export class UploadManager {
 
   async markProcessingComplete(
     uploadId: string,
-    outcome: {
-      manifestUrl?: string;
-      defaultThumbnailUrl?: string;
-      bitrateKbps?: number;
-      previewGeneratedAt?: string;
-      failureReason?: string;
-    }
+    payload: ProcessingCallbackBody
   ) {
     const session = await this.sessions.getSession(uploadId);
     if (!session) {
@@ -572,9 +792,10 @@ export class UploadManager {
       });
     }
 
-    const ready = !outcome.failureReason;
+    const ready = payload.status === "ready";
+    const readyMetadata = ready ? payload.readyMetadata : undefined;
     const previewGeneratedAt = ready
-      ? (outcome.previewGeneratedAt ?? new Date().toISOString())
+      ? payload.previewGeneratedAt ?? new Date().toISOString()
       : undefined;
     const existingMeta =
       session.validationMeta &&
@@ -585,12 +806,15 @@ export class UploadManager {
 
     const updated = await this.sessions.updateProcessingOutcome(uploadId, {
       ready,
-      manifestUrl: outcome.manifestUrl,
-      defaultThumbnailUrl: outcome.defaultThumbnailUrl,
-      bitrateKbps: outcome.bitrateKbps,
+      manifestUrl: payload.status === "ready" ? payload.manifestUrl : undefined,
+      defaultThumbnailUrl:
+        payload.status === "ready" ? payload.defaultThumbnailUrl : undefined,
+      bitrateKbps:
+        payload.status === "ready" ? payload.bitrateKbps : undefined,
       previewGeneratedAt,
-      failureReason: outcome.failureReason,
+      failureReason: payload.status === "failed" ? payload.failureReason : undefined,
       existingMeta,
+      readyMetadata,
     });
 
     await this.quota.release(session.adminId);
@@ -605,9 +829,9 @@ export class UploadManager {
             action: "upload.processing.ready",
             uploadId,
             adminId: session.adminId,
-            manifestUrl: outcome.manifestUrl,
+            manifestUrl: payload.manifestUrl,
             objectKey: session.objectKey,
-            defaultThumbnailUrl: outcome.defaultThumbnailUrl,
+            defaultThumbnailUrl: payload.defaultThumbnailUrl,
           },
         },
         "Upload marked READY"
@@ -618,30 +842,32 @@ export class UploadManager {
         adminId: session.adminId,
         contentId: session.contentId ?? undefined,
         storageKey: session.objectKey,
-        manifestUrl: outcome.manifestUrl,
-        defaultThumbnailUrl: outcome.defaultThumbnailUrl,
+        manifestUrl: payload.manifestUrl,
+        defaultThumbnailUrl: payload.defaultThumbnailUrl,
         metadata: {
           status: "ready",
-          bitrateKbps: outcome.bitrateKbps,
+          bitrateKbps: payload.bitrateKbps,
           previewGeneratedAt,
+          readyMetadata,
         },
       });
       await this.publishMediaProcessed(updated);
+      await this.publishMediaReadyForStream(updated);
     } else {
       this.logger.warn(
         {
           uploadId,
-          failureReason: outcome.failureReason,
+          failureReason: payload.failureReason,
           adminId: session.adminId,
           objectKey: session.objectKey,
           audit: {
             action: "upload.processing.failed",
             uploadId,
             adminId: session.adminId,
-            reason: outcome.failureReason,
+            reason: payload.failureReason,
             objectKey: session.objectKey,
-            manifestUrl: outcome.manifestUrl,
-            defaultThumbnailUrl: outcome.defaultThumbnailUrl,
+            manifestUrl: payload.manifestUrl,
+            defaultThumbnailUrl: payload.defaultThumbnailUrl,
           },
         },
         "Upload failed during processing"
@@ -652,12 +878,12 @@ export class UploadManager {
         adminId: session.adminId,
         contentId: session.contentId ?? undefined,
         storageKey: session.objectKey,
-        manifestUrl: outcome.manifestUrl,
-        defaultThumbnailUrl: outcome.defaultThumbnailUrl,
+        manifestUrl: payload.manifestUrl,
+        defaultThumbnailUrl: payload.defaultThumbnailUrl,
         metadata: {
           status: "failed",
-          reason: outcome.failureReason,
-          bitrateKbps: outcome.bitrateKbps,
+          reason: payload.failureReason,
+          bitrateKbps: payload.bitrateKbps,
           previewGeneratedAt,
         },
       });
