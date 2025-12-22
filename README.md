@@ -120,7 +120,7 @@ Copy `.env.example` into `.env` and fill in the secrets that correspond to your 
 | UPLOAD_CONCURRENT_LIMIT | no | 5 | Per-admin concurrent upload cap. |
 | UPLOAD_DAILY_LIMIT | no | 50 | Per-admin daily upload cap. |
 | UPLOAD_BUCKET | yes | pocketlol-uploads | Target GCS bucket. |
-| CDN_UPLOAD_BASE_URL | yes | https://upload.cdn.pocketlol | CDN fronting the bucket. |
+| CDN_UPLOAD_BASE_URL | yes | <https://upload.cdn.pocketlol> | CDN fronting the bucket. |
 | SIGNED_UPLOAD_TTL_SECONDS | no | 600 | Lifetime of signed policies (seconds). |
 | MEDIA_UPLOADED_TOPIC | no | media.uploaded | Pub/Sub topic for validation success events. |
 | MEDIA_PROCESSED_TOPIC | no | media.processed | Pub/Sub topic for processed asset notifications. |
