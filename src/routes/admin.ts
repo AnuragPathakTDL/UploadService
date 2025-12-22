@@ -92,8 +92,7 @@ export default async function adminRoutes(fastify: FastifyInstance) {
   fastify.get(
     "/uploads/quota",
     {
-      schema: {
-      },
+      schema: {},
     },
     async (request) => {
       const adminContext = ensureAdmin(request);
